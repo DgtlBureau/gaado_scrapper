@@ -379,7 +379,7 @@ class FacebookScraperClient:
                 status = "initializing_browser"
                 
                 # Настройка параметров запуска браузера
-                launch_options = {"headless": False}
+                launch_options = {"headless": True}
                 
                 # Используем конкретный канал браузера, если указан
                 if self.browser_channel:
