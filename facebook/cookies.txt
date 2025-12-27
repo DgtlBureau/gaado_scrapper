@@ -1,5 +1,5 @@
 # Netscape HTTP Cookie File
-.facebook.com	TRUE	/	FALSE	0	c_user	61585653476227
-.facebook.com	TRUE	/	FALSE	0	xs	47%3Af4lMhbskHX5Gqw%3A2%3A1766522537%3A-1%3A-1%3A%3AAcwDP_4sG5vDHarMKJbUoopukLvwk48ZhS-l-IuEQA
-.facebook.com	TRUE	/	FALSE	0	datr	o_5KaduaT0FFQ6mtCVy_Z5vw
+c_user 61585653476227
+xs 41%3ALP4yErcDfDvdEw%3A2%3A1766794366%3A-1%3A-1%3A%3AAcxjpQrj8HZSLpfzcrXFXI-NL1Bn15k6NsWLnp1rRw
+datr YSRPaR4xIGKocYxKipZXcuWp
 

@@ -25,51 +25,34 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logging.getLogger('facebook.facebook_client').setLevel(logging.DEBUG)
 
+# Проверяем наличие Playwright при старте приложения
+try:
+    from playwright.async_api import async_playwright
+    logger.info("✅ Playwright успешно импортирован")
+except ImportError as e:
+    import sys
+    python_exe = sys.executable
+    logger.warning(f"⚠️  Playwright не может быть импортирован: {e}")
+    logger.warning(f"   Python интерпретатор: {python_exe}")
+    logger.warning("   Убедитесь, что Playwright установлен: pip install playwright")
+    logger.warning("   И что браузеры установлены: python -m playwright install chromium")
+
 app = FastAPI(
     title="Facebook Scraper API",
     description="API for scraping Facebook posts and comments using Playwright",
     version="1.0.0"
 )
 
+# Глобальные переменные для браузера
+playwright_instance = None
+browser_context = None
+browser_page = None
 
-def get_c_user_from_cookies() -> str:
-    """
-    Извлекает значение c_user из файла facebook/cookies.txt
-    
-    Returns:
-        Значение c_user или "none" если не найдено
-    """
-    cookies_file = os.getenv("FACEBOOK_COOKIES_FILE", "facebook/cookies.txt")
-    
-    if not os.path.exists(cookies_file):
-        return "none"
-    
-    try:
-        with open(cookies_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    parts = line.split('\t')
-                    if len(parts) >= 7 and parts[5] == 'c_user':
-                        return parts[6] if len(parts) > 6 else "none"
-    except Exception as e:
-        logger.error(f"Ошибка при чтении cookies: {e}")
-        return "none"
-    
-    return "none"
 
 
 def get_facebook_client() -> FacebookScraperClient:
     """
     Создает экземпляр FacebookScraperClient с cookies из переменной окружения или файла
-    
-    Проверяет:
-    1. Переменную окружения FACEBOOK_COOKIES_FILE (путь к файлу cookies)
-    2. Файл facebook/cookies.txt в папке facebook
-    
-    Поддерживает выбор браузера через переменные окружения:
-    - FACEBOOK_BROWSER_CHANNEL: канал браузера ("chrome", "msedge", "chrome-beta", и т.д.)
-    - FACEBOOK_BROWSER_PATH: путь к исполняемому файлу браузера
     
     Returns:
         FacebookScraperClient с настроенными cookies (если найдены)
@@ -77,18 +60,26 @@ def get_facebook_client() -> FacebookScraperClient:
     cookies_file = os.getenv("FACEBOOK_COOKIES_FILE", "facebook/cookies.txt")
     browser_channel = os.getenv("FACEBOOK_BROWSER_CHANNEL")
     browser_executable_path = os.getenv("FACEBOOK_BROWSER_PATH")
+    user_data_dir = os.getenv("FACEBOOK_USER_DATA_DIR")
     
     # Параметры для создания клиента
     client_kwargs = {}
     
     # Добавляем настройки браузера, если указаны
-    if browser_channel:
-        client_kwargs["browser_channel"] = browser_channel
-        logger.info(f"Используется браузер: {browser_channel}")
-    
+    # browser_channel и browser_executable_path взаимоисключающие
+    # Приоритет у browser_executable_path, если указаны оба
     if browser_executable_path:
         client_kwargs["browser_executable_path"] = browser_executable_path
         logger.info(f"Используется браузер из: {browser_executable_path}")
+        if browser_channel:
+            logger.warning(f"⚠️  browser_executable_path имеет приоритет над browser_channel ({browser_channel})")
+    elif browser_channel:
+        client_kwargs["browser_channel"] = browser_channel
+        logger.info(f"Используется браузер: {browser_channel}")
+    
+    if user_data_dir:
+        client_kwargs["user_data_dir"] = user_data_dir
+        logger.info(f"Используется профиль браузера: {user_data_dir}")
     
     # Проверяем переменную окружения с путем к файлу
     if cookies_file and os.path.exists(cookies_file):
@@ -131,8 +122,6 @@ class FacebookPostScrapeRequest(BaseModel):
 @app.get("/", response_class=HTMLResponse)
 async def root():
     """Main page with Facebook scraper interface"""
-    c_user = get_c_user_from_cookies()
-    
     html_content = """
     <!DOCTYPE html>
     <html lang="en">
@@ -534,39 +523,28 @@ async def root():
                 <span class="status">● Online</span>
             </div>
             
-            <div class="info-card">
-                <h3>Cookies Status</h3>
-                <p>""" + (c_user if c_user != "none" else "none") + """</p>
-            </div>
-            
             <div class="scraper-section">
                 <h2>📱 Facebook Post Scraper</h2>
                 <div class="scraper-form">
                     <input 
                         type="text" 
                         id="fb-account-name" 
-                        placeholder="Название аккаунта (например: premierbankso)" 
+                        placeholder="premierbankso" 
                         value="premierbankso"
                     />
                     <input 
                         type="text" 
                         id="fb-post-id" 
-                        placeholder="ID поста или ссылка (например: pfbid0johseZFG8y6RNuNbE1wfiMr1Gr5KhmF8VnH73iV4FsJoHxPiFm2jzN9n3cSGV3Ngl)" 
-                        value=""
+                        placeholder="ID поста или ссылка (например: pfbid02a7buVcZhRZJHY74c5XZUe6xe8Xs2DsZDwGu2rTLaXgVhidNkS1xsUrNuP8wkzJt3l)" 
+                        value="pfbid02a7buVcZhRZJHY74c5XZUe6xe8Xs2DsZDwGu2rTLaXgVhidNkS1xsUrNuP8wkzJt3l"
                     />
-                    <button id="scrape-btn" onclick="scrapeFacebookPost()">Скрапить комментарии</button>
+                    <button id="scrape-btn" onclick="scrapeFacebookPost()">Scrapp button</button>
                 </div>
                 <div id="loading" class="loading">
                     <div class="spinner"></div>
                     <p>Загрузка данных...</p>
                 </div>
                 <div id="result-container" class="result-container"></div>
-            </div>
-            
-            <div class="links">
-                <a href="/docs" class="link">📚 API Documentation</a>
-                <a href="/redoc" class="link secondary">📖 ReDoc</a>
-                <a href="/health" class="link secondary">❤️ Health Check</a>
             </div>
         </div>
     </body>
@@ -585,45 +563,8 @@ async def health():
     }
 
 
-@app.post("/facebook/parse-html")
-async def parse_comments_from_html(request: HTMLParseRequest):
-    """
-    Парсинг комментариев напрямую из HTML-структуры Facebook
-    
-    Этот эндпоинт позволяет извлечь комментарии из HTML-кода страницы Facebook,
-    когда стандартный скраппер не работает из-за изменений в структуре Facebook.
-    
-    Args:
-        request: Запрос с HTML-контентом и опциональным лимитом комментариев
-        
-    Returns:
-        Список извлеченных комментариев с авторами, текстом, временем и лайками
-    """
-    try:
-        client = get_facebook_client()
-        result = client.parse_comments_from_html(request.html_content, limit=request.limit)
-        
-        return {
-            "success": True,
-            "data": result,
-            "parsed_at": datetime.now().isoformat()
-        }
-    except ImportError as e:
-        logger.error(f"Ошибка импорта: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"BeautifulSoup не установлен. Установите: pip install beautifulsoup4"
-        )
-    except Exception as e:
-        logger.error(f"Ошибка при парсинге HTML: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Ошибка при парсинге HTML: {str(e)}"
-        )
-
-
 @app.post("/facebook/scrape-post")
-async def scrape_facebook_post_simple(request: FacebookPostScrapeRequest):
+async def scrape_facebook(request: FacebookPostScrapeRequest):
     """
     Упрощенный эндпоинт для скраппинга комментариев конкретного поста Facebook
     
@@ -662,13 +603,24 @@ async def scrape_facebook_post_simple(request: FacebookPostScrapeRequest):
         
         client = get_facebook_client()
         
-        # Используем браузер для скраппинга (обязательно, так как комментарии загружаются через JS)
-        logger.info(f"🌐 Используем Playwright для рендеринга JavaScript")
-        result = await client.fetch_and_parse_comments_with_browser(
-            post_url, 
-            limit=request.limit,
-            wait_time=request.wait_time
-        )
+        # Используем глобальный браузер, если он доступен
+        if browser_page and not browser_page.is_closed():
+            logger.info(f"🌐 Используем существующий браузер для скраппинга")
+            result = await client.fetch_and_parse_comments_with_browser(
+                post_url, 
+                limit=request.limit,
+                wait_time=request.wait_time,
+                page=browser_page,
+                playwright_instance=playwright_instance
+            )
+        else:
+            # Используем новый браузер для скраппинга
+            logger.info(f"🌐 Создаем новый браузер для рендеринга JavaScript")
+            result = await client.fetch_and_parse_comments_with_browser(
+                post_url, 
+                limit=request.limit,
+                wait_time=request.wait_time
+            )
         
         return {
             "success": True,
@@ -699,66 +651,53 @@ async def scrape_facebook_post_simple(request: FacebookPostScrapeRequest):
         )
 
 
-@app.post("/facebook/parse-url")
-async def fetch_and_parse_comments_from_url(request: URLParseRequest):
-    """
-    Загрузить HTML со страницы Facebook и распарсить комментарии
+@app.on_event("startup")
+async def startup_event():
+    """Инициализация браузера при старте приложения"""
+    global playwright_instance, browser_context, browser_page
     
-    Этот эндпоинт загружает HTML со страницы Facebook по URL и извлекает комментарии.
-    Использует cookies из файла (если доступны) для доступа к странице.
-    
-    Если use_browser=True, использует Playwright для рендеринга JavaScript,
-    что позволяет извлекать комментарии, загружаемые динамически.
-    
-    Args:
-        request: Запрос с URL страницы и опциональными параметрами
-        
-    Returns:
-        Результат с данными и статусом выполнения
-    """
     try:
+        from playwright.async_api import async_playwright
+        
+        logger.info("🚀 Инициализация браузера при старте приложения...")
+        playwright_instance = await async_playwright().__aenter__()
+        
+        # Создаем клиент Facebook с настройками из переменных окружения
         client = get_facebook_client()
         
-        if request.use_browser:
-            logger.info(f"Используем браузер для рендеринга JavaScript")
-            result = await client.fetch_and_parse_comments_with_browser(
-                request.url, 
-                limit=request.limit,
-                wait_time=request.wait_time
-            )
-        else:
-            logger.info(f"Используем простой HTTP запрос")
-            result = await client.fetch_and_parse_comments_from_url(request.url, limit=request.limit)
+        # Инициализируем браузер через клиент
+        browser, browser_context, browser_page = await client.initialize_browser(playwright_instance)
         
-        return {
-            "success": True,
-            "data": result,
-            "status": result.get("status", "completed"),
-            "message": f"Скрапинг завершен. Найдено {result.get('total_count', 0)} комментариев."
-        }
-    except ImportError as e:
-        logger.error(f"Ошибка импорта: {e}")
-        error_msg = "Необходимые библиотеки не установлены."
-        if request.use_browser:
-            error_msg += " Для браузера установите: pip install playwright && playwright install chromium"
-        else:
-            error_msg += " Установите: pip install httpx beautifulsoup4"
-        raise HTTPException(
-            status_code=500,
-            detail=error_msg
-        )
-    except ValueError as e:
-        logger.error(f"Ошибка валидации: {e}")
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        # Открываем Facebook через клиент
+        await client.open_facebook(browser_page, wait_time=3)
+        
+        logger.info("✅ Браузер инициализирован, Facebook открыт")
+        
     except Exception as e:
-        logger.error(f"Ошибка при загрузке и парсинге URL: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Ошибка при обработке URL: {str(e)}"
-        )
+        logger.error(f"❌ Ошибка при инициализации браузера: {e}", exc_info=True)
+        # Не прерываем запуск приложения, но логируем ошибку
+
+
+# @app.on_event("shutdown")
+# async def shutdown_event():
+#     """Закрытие браузера при остановке приложения"""
+#     global playwright_instance, browser_context, browser_page
+    
+#     try:
+#         logger.info("🛑 Закрываем браузер...")
+        
+#         if browser_page and not browser_page.is_closed():
+#             await browser_page.close()
+        
+#         if browser_context:
+#             await browser_context.close()
+        
+#         if playwright_instance:
+#             await playwright_instance.__aexit__(None, None, None)
+        
+#         logger.info("✅ Браузер закрыт")
+#     except Exception as e:
+#         logger.error(f"❌ Ошибка при закрытии браузера: {e}", exc_info=True)
 
 
 # Error handlers
