@@ -9,7 +9,7 @@ on:
 
 jobs:
   build-and-push:
-    runs-on: scrapper
+    runs-on: self-hosted
     
     steps:
     - name: Checkout code
