@@ -1,0 +1,8 @@
+version: '3.8'
+
+services:
+  gaado-scrapper:
+    build: .
+    ports:
+      - "9000:8000"
+    restart: unless-stopped
